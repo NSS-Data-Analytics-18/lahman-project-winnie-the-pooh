@@ -317,5 +317,287 @@ SELECT h.throws, hof_inductees, num_pitchers,
 		(hof_inductees * 1.0 / num_pitchers) AS hof_rate
 FROM hof_counts AS h
 	JOIN pitcher_counts AS pitcher
-		ON h.throws = pitcher.throws
+		ON h.throws = pitcher.throws;
 	-- Left handed pitchers are less likely to be inducted
+
+-- BONUS READ ME --
+
+	-- QUESTION ONE --
+		-- Part A --
+			-- team with the most wins, by league, in 2016
+
+SELECT DISTINCT 
+    t.lgid,
+    	(SELECT t2.teamid
+        FROM teams t2
+        WHERE t2.yearid = 2016
+          AND t2.lgid = t.lgid
+        ORDER BY t2.w DESC
+        LIMIT 1) AS top_team
+FROM teams t
+WHERE t.yearid = 2016;
+
+		-- PART B --
+SELECT DISTINCT 
+    t.lgid,
+    (SELECT t2.teamid
+     FROM teams AS t2
+     WHERE t2.yearid = 2016
+        AND t2.lgid = t.lgid
+     ORDER BY t2.w DESC
+        LIMIT 1) AS top_team,
+	(SELECT t3.w
+	FROM teams AS t3
+	WHERE t3.yearid = 2016
+		AND t3.lgid = t.lgid
+	ORDER BY t3.w DESC
+		LIMIT 1) AS wins
+FROM teams AS t
+WHERE t.yearid = 2016;
+		-- League: AL:95 wins, NL:103 wins
+
+		-- PART C --
+			-- clean it up with a DISTINCT ON
+		
+SELECT DISTINCT ON (lgid)
+	lgid, teamid AS top_team,
+	w AS wins
+FROM teams
+WHERE yearid = 2016
+ORDER BY lgid, w DESC;
+
+		-- PART D --
+			-- LATERAL querie instead
+		
+SELECT *
+FROM 
+	(SELECT DISTINCT lgid
+	FROM teams
+	WHERE yearid = 2016) AS leagues
+CROSS JOIN LATERAL (SELECT t2.teamid, t2.w AS wins
+		FROM teams AS t2
+		WHERE t2.yearid = 2016
+			AND t2.lgid = leagues.lgid
+		ORDER BY t2.w DESC
+		LIMIT 1) AS top_teams_2016;
+
+		-- PART E --
+			-- Top 3 teams per league in 2016 by wins
+
+SELECT DISTINCT t.lgid, top_teams_2016.teamid
+FROM (SELECT DISTINCT lgid
+	  FROM teams
+	  WHERE yearid = 2016) AS t
+CROSS JOIN LATERAL
+	(SELECT teamid 
+	FROM teams AS t2
+	WHERE t2.yearid = 2016
+	AND t2.lgid = t.lgid
+	ORDER BY t2.w DESC
+	LIMIT 3) AS top_teams_2016;
+
+-- QUESTION 2 --
+	-- PART A --
+		-- Each players birthyear, month, and day conjugated
+
+SELECT *
+FROM people;
+
+SELECT playerid, birthyear::integer, birthmonth::integer, birthday::integer,
+	MAKE_DATE(birthyear, birthmonth, birthday) AS Birthdate 
+FROM people;
+
+	-- PART B
+		-- age at debut and retirement
+
+SELECT p.playerid, p.namefirst, p.namelast, p.debut, p.finalgame,
+	  EXTRACT(YEAR FROM age(p.debut::date, DOB.birthdate)) AS debut_age,
+	  EXTRACT(YEAR FROM age(p.finalgame::date, DOB.birthdate)) AS retirememt_age
+FROM people AS p
+CROSS JOIN LATERAL
+	(SELECT birthyear::integer, birthmonth::integer, birthday::integer,
+			MAKE_DATE(birthyear, birthmonth, birthday) AS Birthdate 
+	FROM people AS p2
+	WHERE p2.playerid = p.playerid) AS DOB;
+
+	-- PART C --
+		--Youngest player in majors
+SELECT p.playerid, p.namefirst, p.namelast, p.debut, p.finalgame,
+	  MIN(EXTRACT(YEAR FROM age(p.debut::date, DOB.birthdate))) AS debut_age,
+	  MIN(EXTRACT(YEAR FROM age(p.finalgame::date, DOB.birthdate))) AS retirememt_age
+FROM people AS p
+CROSS JOIN LATERAL
+	(SELECT birthyear::integer, birthmonth::integer, birthday::integer,
+			MAKE_DATE(birthyear, birthmonth, birthday) AS Birthdate 
+	FROM people AS p2
+	WHERE p2.playerid = p.playerid) AS DOB
+GROUP BY p.playerid
+ORDER BY debut_age ASC
+LIMIT 1;
+		-- youngest player is Joe Nuxhall, debuing at 15
+
+	-- PART D --
+		--oldest player in the majors
+
+SELECT p.playerid, p.namefirst, p.namelast,
+	  EXTRACT(YEAR FROM age(p.debut::date, DOB.birthdate)) AS debut_age,
+	  EXTRACT(YEAR FROM age(p.finalgame::date, DOB.birthdate)) AS retirement_age
+FROM people AS p
+CROSS JOIN LATERAL
+	(SELECT birthyear::integer, birthmonth::integer, birthday::integer,
+			MAKE_DATE(birthyear, birthmonth, birthday) AS Birthdate 
+	FROM people AS p2
+	WHERE p2.playerid = p.playerid
+		AND birthyear IS NOT NULL
+      	AND birthmonth IS NOT NULL
+      	AND birthday IS NOT NULL) AS DOB
+WHERE p.debut IS NOT NULL
+  AND p.finalgame IS NOT NULL
+ORDER BY retirement_age DESC
+LIMIT 1;
+		-- Paige Satchel retiring at 59
+
+-- QUESTION 3 --
+	-- recursive cte for co-starters with Willie Mays
+
+SELECT namefirst, namelast, playerid
+FROM people
+WHERE namefirst ILIKE '%willie%'
+	AND namelast ILIKE '%mays%';
+		-- recovered playerid for willie
+
+WITH RECURSIVE starters AS
+	(SELECT playerid
+	FROM allstarfull
+	WHERE playerid = 'mayswi01'
+		AND startingpos IS NOT NULL
+UNION
+	SELECT a2.playerid
+	FROM starters
+		JOIN allstarfull AS a1
+			ON starters.playerid = a1.playerid
+			AND a1.startingpos IS NOT NULL
+		JOIN allstarfull AS a2
+			ON a1.yearid = a2.yearid
+			AND a1.gameid = a2.gameID
+			AND a2.startingpos IS NOT NULL)
+SELECT COUNT(*) -1 AS starters_with_willie
+FROM starters;
+		-- 650 seems like a lot of players
+
+	-- PART B --
+		-- starters that started with starters who've started with Willie
+		-- aka the kevin bacon 7 degrees of seperation
+
+WITH RECURSIVE willie_starters AS
+    (SELECT DISTINCT a2.playerID
+    FROM allstarfull AS a1
+    	JOIN allstarfull AS a2
+    	  ON a1.yearID = a2.yearID
+    	 AND a1.gameID = a2.gameID
+    WHERE a1.playerID = 'mayswi01'
+      AND a1.startingPos IS NOT NULL
+      AND a2.startingPos IS NOT NULL),
+
+kevin_bacon AS 
+	(SELECT playerid
+	FROM willie_starters
+UNION
+	SELECT DISTINCT a2.playerid
+	FROM kevin_bacon AS kb
+		JOIN allstarfull AS a1
+			ON kb.playerid = a1.playerid
+		AND a1.startingpos IS NOT NULL
+		JOIN allstarfull AS a2
+			ON a1.yearid = a2.yearid
+		AND a1.gameid = a2.gameid
+		AND a2.startingpos IS NOT NULL)
+SELECT COUNT(*)
+FROM kevin_bacon
+	WHERE playerid NOT IN 
+		(SELECT playerid FROM willie_starters)
+		AND playerid <> 'mayswi01';
+			-- 525 second-degree starter connections
+
+	-- PART C --
+		--Babe Ruth > Willie... except Babe was never in an allstar game...
+		-- we'll need to find someone who played with him, AND started as an Allstar
+
+SELECT DISTINCT
+    p2.playerID,
+    p2.namefirst,
+    p2.namelast,
+	a2.teamid
+FROM people AS ruth
+JOIN appearances AS a1
+    ON ruth.playerID = a1.playerID
+JOIN appearances AS a2
+    ON a1.teamID = a2.teamID
+   AND a1.yearID = a2.yearID
+JOIN people AS p2
+    ON a2.playerID = p2.playerID
+JOIN allstarfull AS a3
+    ON p2.playerID = a3.playerID
+WHERE ruth.playerID = 'ruthba01'
+	AND a2.teamID = 'NYA'
+  AND a3.startingPos IS NOT NULL;
+		-- Let's do Babe and Lou
+		
+WITH RECURSIVE connection AS
+	(SELECT playerid, ARRAY[playerid]::varchar[] AS links
+	FROM allstarfull
+	WHERE playerID = 'mayswi01'
+		AND startingpos IS NOT NULL
+UNION ALL
+	SELECT DISTINCT
+		a2.playerID,
+		c.links || a2.playerid
+	FROM connection AS c
+		JOIN allstarfull AS a1
+			ON c.playerid = a1.playerid
+			AND a1.startingpos IS NOT NULL
+		JOIN allstarfull AS a2
+			ON a1.yearid = a2.yearid
+			AND a1.gameid = a2.gameid
+			AND a2.startingpos IS NOT NULL
+			WHERE NOT a2.playerid = ANY(c.links))
+SELECT links
+FROM connection
+WHERE playerid = 'gehrilo01'
+LIMIT 1;
+
+	-- PART D --
+		-- Jeter to Willie
+
+SELECT playerid
+FROM people
+WHERE namefirst ILIKE 'Derek'
+	AND namelast ILIKE 'Jeter';
+
+		
+WITH RECURSIVE connection AS
+	(SELECT playerid, ARRAY[playerid]::varchar[] AS links
+	FROM allstarfull
+	WHERE playerID = 'mayswi01'
+		AND startingpos IS NOT NULL
+UNION ALL
+	SELECT DISTINCT
+		a2.playerID,
+		c.links || a2.playerid
+	FROM connection AS c
+		JOIN allstarfull AS a1
+			ON c.playerid = a1.playerid
+			AND a1.startingpos IS NOT NULL
+		JOIN allstarfull AS a2
+			ON a1.yearid = a2.yearid
+			AND a1.gameid = a2.gameid
+			AND a2.startingpos IS NOT NULL
+			WHERE NOT a2.playerid = ANY(c.links))
+SELECT links
+FROM connection
+WHERE playerid = 'jeterde01'
+LIMIT 1;
+		-- that ran so long I got scared
+		-- mayswi01,carewro01,cartega01,clemero02,jeterde01
+
+
