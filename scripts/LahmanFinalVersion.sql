@@ -1,4 +1,249 @@
 select
+    min(yearid) as earliest_year,
+    max(yearid) as latest_year
+from teams; -- 1. 1871-2016
+
+select
+    p.namefirst,
+    p.namelast,
+    p.height,
+    sum(a.g_all) as games_played,
+    t.name as team_name
+from people as p
+inner join appearances as a
+    on p.playerid = a.playerid
+inner join teams as t
+    on a.teamid = t.teamid
+    and a.yearid = t.yearid
+where p.height = (select min(height)from people)
+group by
+    p.playerid,
+    p.namefirst,
+    p.namelast,
+    p.height,
+    t.name
+order by games_played desc; -- 2. Eddie Gaedel, 1 game played, St. Louis Browns
+
+select
+	p.namefirst,
+	p.namelast,
+	sum(salaries.salary) as total_salary
+from people as p
+inner join (select distinct college.playerid
+    from collegeplaying as college
+    inner join schools 
+        on college.schoolid = schools.schoolid
+    where schools.schoolname = 'Vanderbilt University'
+) as vandy
+    on p.playerid = vandy.playerid
+inner join salaries
+	 on p.playerid = salaries.playerid
+group by p.playerid,
+		 p.namefirst,
+		 p.namelast
+order by total_salary desc; -- 3.
+
+select
+    case
+        when pos = 'OF' then 'Outfield'
+        when pos in ('SS', '1B', '2B', '3B') then 'Infield'
+        when pos in ('P', 'C') then 'Battery'
+    end as position_group,
+	sum(po) as total_putouts
+from fielding
+where yearid = 2016
+group by
+	case
+        when pos = 'OF' then 'Outfield'
+        when pos in ('SS', '1B', '2B', '3B') then 'Infield'
+        when pos in ('P', 'C') then 'Battery'
+end; -- 4. (Noah) ["Battery" - 41424], ["Infield" - 58934], ["Outfield" - 29560]
+
+SELECT *
+FROM teams;
+
+SELECT (yearid/ 10) *10 AS decade,
+	ROUND(AVG(so::numeric/g), 2) AS avg_SO_pergame,
+	ROUND(AVG(hr::numeric/g), 2) AS avg_HR_pergame
+FROM teams
+WHERE yearid >= 1920
+GROUP BY decade
+ORDER BY decade; -- 5. (Jewel)
+
+select
+	floor(yearid / 10) * 10 as decade,
+	round(sum(so)::numeric / sum(g), 2) as so_per_game,
+	round(sum(hr)::numeric / sum(g), 2) as hr_per_game
+from teams
+where yearid >= 1920
+group by floor(yearid / 10) * 10
+order by decade; -- 5.
+
+SELECT *
+	FROM (SELECT namefirst, namelast, sb, (sb+cs) AS attempts, CONCAT(ROUND((sb * 100.0) / NULLIF(sb + cs, 0), 2), '%') AS sb_percentage, yearid
+	FROM batting 
+	INNER JOIN people ON batting.playerid = people.playerid
+	WHERE yearid = 2016) AS sb_2016
+WHERE attempts > 20
+ORDER BY sb_percentage DESC
+LIMIT 1; -- 6. (Nas) Chris Owings had the most success 91.30% and 21 stolen bases 
+
+select
+	people.namefirst,
+	people.namelast,
+	sum(batting.sb) as stolen_bases,
+	sum(batting.cs) as caught_stealing,
+	round(
+		sum(batting.sb)::numeric /
+		(sum(batting.sb) + sum(batting.cs)) * 100,
+		2
+	) as success_pct
+from batting
+inner join people
+	on batting.playerid = people.playerid
+where batting.yearid = 2016
+group by
+	people.playerid,
+	people.namefirst,
+	people.namelast
+having sum(batting.sb) + sum(batting.cs) >= 20
+order by success_pct desc; -- 6. chris owings 21 bases, 91.30%
+
+select
+	 max(w) as most_wins_not_WS
+from teams
+where yearid between 1970 and 2016
+	and wswin = 'N'; -- a
+
+select 
+	 min(w) as least_wins_WS
+from teams
+where yearid between 1970 and 2016
+	and wswin = 'Y'; -- b
+
+select
+    yearid,
+    name,
+    w,
+    wswin
+from teams
+where yearid between 1970 and 2016
+    and wswin = 'Y'
+order by w; -- c. 1981 had players on strike so teams played less games than a normal season
+
+select
+	min(w) as least_wins_ws
+from teams
+where yearid between 1970 and 2016
+	and yearid <> 1981
+	and wswin = 'Y'; -- d. 83 wins
+	
+select
+	count(*) as times_most_wins_won_ws,
+	round(count(*) * 100 / 46, 1) as percent
+from (
+select *
+from (
+select
+	yearid,
+	name,
+	w,
+	wswin,
+	max(w) over(partition by yearid) as most_wins_that_year
+from teams
+where yearid between 1970 and 2016
+	and yearid <> 1981) as team_wins
+where w = most_wins_that_year)
+as top_teams
+where wswin = 'Y'; -- 7. (Noah) 12 times, 26% of the time
+
+SELECT t.name AS team, p.park_name, SUM(h.attendance)/SUM(h.games) AS avg_attendance
+FROM homegames AS h
+	JOIN parks as p
+		ON h.park = p.park
+	JOIN teams AS t
+		ON h.team = t.teamid
+	WHERE games >= 10
+	AND h.year = 2016
+GROUP BY t.name, p.park_name
+ORDER BY avg_attendance DESC
+LIMIT 10;-- 8. (Jewel) Dodgers, Cardinals,Browns, Perfectos, Blue Jays 
+		            -- Giants, Colts, Cubs, Orphans, White Stockings
+		            -- Team/park with highest AVG attendance per game 
+		            -- in 2016 where at least 10 g played. Highest 5
+
+select
+    h.team,
+    p.park_name,
+    round(h.attendance::numeric / h.games, 1) as avg_attendance
+from homegames as h
+inner join parks as p
+    on h.park = p.park
+where h.year = 2016
+    and h.games >= 10
+order by avg_attendance asc
+limit 5; -- 8.
+
+
+SELECT people.namefirst, people.namelast, awardsmanagers.yearid, awardsmanagers.lgid, teams.name AS team_name
+FROM awardsmanagers 
+	INNER JOIN people ON awardsmanagers.playerid = people.playerid
+	INNER JOIN teams  ON awardsmanagers.yearid = teams.yearid AND awardsmanagers.yearid = teams.yearid AND awardsmanagers.lgid = teams.lgid
+WHERE awardsmanagers.awardid = 'TSN Manager of the Year' AND awardsmanagers.playerid IN (SELECT playerid
+	FROM awardsmanagers
+	WHERE awardid = 'TSN Manager of the Year' AND lgid IN ('NL', 'AL')
+	GROUP BY playerid
+	HAVING COUNT(DISTINCT lgid) = 2)
+ORDER BY namefirst DESC; -- 9. (Nas) Jim Leyland and Dav coaches who had both awards for AL and NL 
+
+select distinct
+    p.namefirst,
+    p.namelast,
+    am.yearid,
+    am.lgid,
+    t.name as team_name
+from awardsmanagers am
+join people p on am.playerid = p.playerid
+join managers m on am.playerid = m.playerid and am.yearid = m.yearid
+join teams t on m.teamid = t.teamid and m.yearid = t.yearid
+where am.awardid = 'TSN Manager of the Year'
+and am.playerid in (
+    select playerid
+    from awardsmanagers
+    where awardid = 'TSN Manager of the Year'
+    group by playerid
+    having count(distinct lgid) = 2)
+order by p.namelast, am.yearid; -- 9. Jim & Davey
+
+select
+	p.namefirst,
+	p.namelast,
+	b.yearly_hr as hr_2016
+from (
+	select
+		playerid,
+		yearid,
+		yearly_hr,
+		max(yearly_hr) over(partition by playerid) as career_high_hrs,
+		count(*) over(partition by playerid) as years_played
+	from (
+		select
+		playerid,
+		yearid,
+		sum(hr) as yearly_hr -- hr = homerun
+		from batting
+		group by playerid, yearid
+ 	) as yearly_batting
+) as b
+inner join people as p
+	on b.playerid = p.playerid
+where b.yearid = 2016
+	and b.yearly_hr = b.career_high_hrs
+	and b.years_played >= 10
+	and b.yearly_hr > 0
+order by b.yearly_hr desc; -- 10.
+
+select
     yearid,
     round(corr(w, team_salary)::numeric, 3) as salary_wins_correlation
 from (
@@ -391,6 +636,15 @@ select
 -- Left-handed pitchers are much rarer and had a slightly higher rate of winning the Cy Young Award. 
 -- Right-handed pitchers had a higher Hall of Fame induction rate. 
 -- Therefore, these results don't provide strong evidence that left-handed pitchers are more effective.
+
+
+
+
+
+
+
+
+
 
 
 
