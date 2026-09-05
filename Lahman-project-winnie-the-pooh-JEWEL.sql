@@ -1,5 +1,7 @@
 -- LAHMANS BASEBALL DATABASE --
-
+	-- Team Work Breakdown: 1,2,3 - ALL; 5,8,10 - Assigned
+		-- went back through to finish the rest: 4,6,7,9
+		
 -- INITIAL QUESTIONS --
 
 	-- NUMBER ONE --
@@ -31,7 +33,7 @@ ORDER BY height asc;
 	-- NUMBER THREE --
 		-- Vanderbilt U players, their major league salaries
 		
-SELECT p.namefirst, p.namelast, s.schoolname, SUM(sal.salary) AS total_salary
+SELECT DISTINCT p.namefirst, p.namelast, s.schoolname, SUM(sal.salary)::numeric::money AS total_salary
 FROM people AS p
 	JOIN collegeplaying AS c
 		on p.playerid = c.playerid
@@ -44,6 +46,18 @@ GROUP BY p.namefirst, p.namelast, s.schoolname
 ORDER BY total_salary DESC;
 		--David Price made most in majors with $245,553,888
 
+SELECT namefirst, namelast, p.playerid, SUM(salary)::numeric::money AS total_salary
+FROM people AS p
+	INNER JOIN salaries AS sal
+	ON p.playerid = sal.playerid
+WHERE p.playerid IN (SELECT playerid
+					FROM collegeplaying INNER JOIN schools USING (schoolid)
+					WHERE schoolname ILIKE '%Vanderbilt%')
+GROUP BY namefirst, namelast, p.playerid
+ORDER BY total_salary DESC;
+		-- still david price, but salary not duplicated
+
+
 -- ASSIGNED 5, 8, 10 by Team Lead --
 
 	-- NUMBER FIVE --
@@ -53,13 +67,15 @@ SELECT *
 FROM teams;
 
 SELECT (yearid/ 10) *10 AS decade,
-	ROUND(AVG(so::numeric/g), 2) AS avg_SO_pergame,
-	ROUND(AVG(hr::numeric/g), 2) AS avg_HR_pergame
+	ROUND(AVG(so::numeric/(g/2)), 2) AS avg_SO_pergame,
+	ROUND(AVG(hr::numeric/(g/2)), 2) AS avg_HR_pergame
 FROM teams
 WHERE yearid >= 1920
 GROUP BY decade
 ORDER BY decade;
 		-- general upward trend, as strikeouts increase, homerun avg does too
+			-- correction: have to divide games by 2, since 2 teams play 1 game
+
 
 	-- NUMBER EIGHT --
 		-- Team/park with highest AVG attendance per game 
@@ -75,9 +91,8 @@ FROM homegames AS h
 	AND h.year = 2016
 GROUP BY t.name, p.park_name
 ORDER BY avg_attendance DESC
-LIMIT 10;
+LIMIT 5;
 		-- Dodgers, Cardinals,Browns, Perfectos, Blue Jays
-		-- Giants, Colts, Cubs, Orphans, White Stockings
 
 	-- Lowest AVG
 SELECT t.name AS team, p.park_name, SUM(h.attendance)/SUM(h.games) AS avg_attendance
@@ -90,9 +105,8 @@ FROM homegames AS h
 	AND h.year = 2016
 GROUP BY t.name, p.park_name
 ORDER BY avg_attendance ASC
-LIMIT 10;
+LIMIT 5;
 		-- Devil Rays, Rays, Athletics, Indians, Naps, Bronchos
-		-- Blues, Marlins, White Sox, Redlegs
 
 
 	-- NUMBER TEN --
@@ -320,284 +334,136 @@ FROM hof_counts AS h
 		ON h.throws = pitcher.throws;
 	-- Left handed pitchers are less likely to be inducted
 
--- BONUS READ ME --
+-- Going back through unassigned questions: 4,6,7,9
+	
+	-- QUESTION FOUR --
 
-	-- QUESTION ONE --
-		-- Part A --
-			-- team with the most wins, by league, in 2016
+SELECT
+	CASE 
+		WHEN pos = 'OF' THEN 'Outfield'
+		WHEN pos IN ('SS', '1B','2B', '3B') THEN 'Infield'
+		WHEN pos IN ('P', 'C') THEN 'Battery'
+	END AS position_group,
+	SUM(po) AS putout_totals
+FROM fielding
+WHERE yearid = 2016
+GROUP BY position_group;
 
-SELECT DISTINCT 
-    t.lgid,
-    	(SELECT t2.teamid
-        FROM teams t2
-        WHERE t2.yearid = 2016
-          AND t2.lgid = t.lgid
-        ORDER BY t2.w DESC
-        LIMIT 1) AS top_team
-FROM teams t
-WHERE t.yearid = 2016;
+	-- QUESTION SIX --
+
+SELECT playerid, sb, cs, sb+cs AS sb_attempts,
+	ROUND(sb::numeric / (sb+cs) *100, 2) AS sb_success_rate
+FROM batting
+	WHERE yearid = 2016
+		AND (sb+cs) >=20
+ORDER BY sb_success_rate DESC
+LIMIT 1;
+	 	-- owingch01 with highest stolen base success rate at 0.913
+
+	-- QUESTION SEVEN --
+		--lets find the problem year first
+SELECT yearid, teamid, w AS wins
+FROM teams
+	WHERE yearid BETWEEN 1970 AND 2016
+	AND wswin = 'N'
+ORDER BY wins DESC
+LIMIT 1;
+	 		-- largest wins but did NOT win world series
+				-- SEA in 2001 with 116 wins 
+				
+SELECT yearid, teamid, w AS wins
+FROM teams
+	WHERE yearid BETWEEN 1970 AND 2016
+	AND wswin = 'Y'
+ORDER BY wins ASC
+LIMIT 2;
+		-- smallest wins that DID win world series
+			-- LAN in 1981 with 63 wins & SLN in 2006 w/ 83 wins
+			-- shortened season in 1981 due to strike, so uneven number of games
+
+SELECT yearid, teamid, w AS wins
+FROM teams
+	WHERE yearid BETWEEN 1970 AND 2016
+	AND wswin = 'Y'
+	AND yearid NOT IN (1981, 2006)
+ORDER BY wins ASC
+LIMIT 1;
+		-- exclude 1981 and 2006 as problem years
+			-- next up is MIN in 1987 with 85 wins
 
 		-- PART B --
-SELECT DISTINCT 
-    t.lgid,
-    (SELECT t2.teamid
-     FROM teams AS t2
-     WHERE t2.yearid = 2016
-        AND t2.lgid = t.lgid
-     ORDER BY t2.w DESC
-        LIMIT 1) AS top_team,
-	(SELECT t3.w
-	FROM teams AS t3
-	WHERE t3.yearid = 2016
-		AND t3.lgid = t.lgid
-	ORDER BY t3.w DESC
-		LIMIT 1) AS wins
-FROM teams AS t
-WHERE t.yearid = 2016;
-		-- League: AL:95 wins, NL:103 wins
-
-		-- PART C --
-			-- clean it up with a DISTINCT ON
-		
-SELECT DISTINCT ON (lgid)
-	lgid, teamid AS top_team,
-	w AS wins
-FROM teams
-WHERE yearid = 2016
-ORDER BY lgid, w DESC;
-
-		-- PART D --
-			-- LATERAL querie instead
-		
-SELECT *
-FROM 
-	(SELECT DISTINCT lgid
+			--most wins per year that won world series & percentage
+WITH most_wins AS
+	(SELECT yearid, MAX(w) AS highest_w 
 	FROM teams
-	WHERE yearid = 2016) AS leagues
-CROSS JOIN LATERAL (SELECT t2.teamid, t2.w AS wins
-		FROM teams AS t2
-		WHERE t2.yearid = 2016
-			AND t2.lgid = leagues.lgid
-		ORDER BY t2.w DESC
-		LIMIT 1) AS top_teams_2016;
+		WHERE yearid BETWEEN 1970 AND 2016
+		AND yearid NOT IN (1981, 2006)
+	GROUP BY yearid)
+SELECT COUNT(*) AS years_max_won_WS
+FROM most_wins
+	JOIN teams
+		ON most_wins.yearid = teams.yearid
+		AND most_wins.highest_w = teams.w
+	WHERE teams.wswin = 'Y';
+			-- 12
 
-		-- PART E --
-			-- Top 3 teams per league in 2016 by wins
+		-- Now for the percentage of teams with top wins that also won WS
+WITH most_wins AS 
+	(SELECT yearid, MAX(w) AS highest_w
+    FROM teams
+    WHERE yearid BETWEEN 1970 AND 2016
+      AND yearid NOT IN (1981)
+    GROUP BY yearid),
+ws_top_winners AS (
+    SELECT COUNT(*) AS years_max_won_ws
+    FROM most_wins
+    JOIN teams
+      ON most_wins.yearid = teams.yearid
+     AND most_wins.highest_w = teams.w
+    WHERE teams.wswin = 'Y'),
+total_years AS 
+	(SELECT COUNT(DISTINCT yearid) AS total_valid_years
+    FROM teams
+    WHERE yearid BETWEEN 1970 AND 2016
+      AND yearid NOT IN (1981))
+SELECT 
+    ws_top_winners.years_max_won_ws,
+    total_years.total_valid_years,
+    ROUND(ws_top_winners.years_max_won_ws::numeric 
+        / total_years.total_valid_years, 3) AS percentage_top_team_won_ws
+FROM ws_top_winners, total_years;
+		-- about 26.7% of WS winners also achieved top game wins, excluding problem years 1981 & 2006
+		-- or 26.1% when only excluding 1981
 
-SELECT DISTINCT t.lgid, top_teams_2016.teamid
-FROM (SELECT DISTINCT lgid
-	  FROM teams
-	  WHERE yearid = 2016) AS t
-CROSS JOIN LATERAL
-	(SELECT teamid 
-	FROM teams AS t2
-	WHERE t2.yearid = 2016
-	AND t2.lgid = t.lgid
-	ORDER BY t2.w DESC
-	LIMIT 3) AS top_teams_2016;
+	-- NUMBER NINE --
+WITH dual_winners AS 
+    (SELECT playerID
+    FROM awardsmanagers
+    WHERE awardID = 'TSN Manager of the Year'
+    GROUP BY playerID
+    HAVING COUNT(DISTINCT lgID) = 2)
+SELECT p.namefirst, p.namelast, awards.yearID, awards.lgID, t.teamID, t.name
+FROM dual_winners AS d
+	JOIN awardsmanagers AS awards
+   		ON d.playerID = awards.playerID
+	JOIN managers AS m
+    	ON awards.playerID = m.playerID
+   		AND awards.yearID = m.yearID
+	JOIN teams AS t
+    	ON m.teamID = t.teamID
+   		AND m.yearID = t.yearID
+	JOIN people AS p
+    	ON p.playerID = awards.playerID
+WHERE awards.awardID = 'TSN Manager of the Year'
+ORDER BY p.namelast, awards.yearID;
+	-- is there a way to clean this up? it looks so messy
 
--- QUESTION 2 --
-	-- PART A --
-		-- Each players birthyear, month, and day conjugated
 
-SELECT *
-FROM people;
 
-SELECT playerid, birthyear::integer, birthmonth::integer, birthday::integer,
-	MAKE_DATE(birthyear, birthmonth, birthday) AS Birthdate 
-FROM people;
 
-	-- PART B
-		-- age at debut and retirement
 
-SELECT p.playerid, p.namefirst, p.namelast, p.debut, p.finalgame,
-	  EXTRACT(YEAR FROM age(p.debut::date, DOB.birthdate)) AS debut_age,
-	  EXTRACT(YEAR FROM age(p.finalgame::date, DOB.birthdate)) AS retirememt_age
-FROM people AS p
-CROSS JOIN LATERAL
-	(SELECT birthyear::integer, birthmonth::integer, birthday::integer,
-			MAKE_DATE(birthyear, birthmonth, birthday) AS Birthdate 
-	FROM people AS p2
-	WHERE p2.playerid = p.playerid) AS DOB;
 
-	-- PART C --
-		--Youngest player in majors
-SELECT p.playerid, p.namefirst, p.namelast, p.debut, p.finalgame,
-	  MIN(EXTRACT(YEAR FROM age(p.debut::date, DOB.birthdate))) AS debut_age,
-	  MIN(EXTRACT(YEAR FROM age(p.finalgame::date, DOB.birthdate))) AS retirememt_age
-FROM people AS p
-CROSS JOIN LATERAL
-	(SELECT birthyear::integer, birthmonth::integer, birthday::integer,
-			MAKE_DATE(birthyear, birthmonth, birthday) AS Birthdate 
-	FROM people AS p2
-	WHERE p2.playerid = p.playerid) AS DOB
-GROUP BY p.playerid
-ORDER BY debut_age ASC
-LIMIT 1;
-		-- youngest player is Joe Nuxhall, debuing at 15
 
-	-- PART D --
-		--oldest player in the majors
 
-SELECT p.playerid, p.namefirst, p.namelast,
-	  EXTRACT(YEAR FROM age(p.debut::date, DOB.birthdate)) AS debut_age,
-	  EXTRACT(YEAR FROM age(p.finalgame::date, DOB.birthdate)) AS retirement_age
-FROM people AS p
-CROSS JOIN LATERAL
-	(SELECT birthyear::integer, birthmonth::integer, birthday::integer,
-			MAKE_DATE(birthyear, birthmonth, birthday) AS Birthdate 
-	FROM people AS p2
-	WHERE p2.playerid = p.playerid
-		AND birthyear IS NOT NULL
-      	AND birthmonth IS NOT NULL
-      	AND birthday IS NOT NULL) AS DOB
-WHERE p.debut IS NOT NULL
-  AND p.finalgame IS NOT NULL
-ORDER BY retirement_age DESC
-LIMIT 1;
-		-- Paige Satchel retiring at 59
-
--- QUESTION 3 --
-	-- recursive cte for co-starters with Willie Mays
-
-SELECT namefirst, namelast, playerid
-FROM people
-WHERE namefirst ILIKE '%willie%'
-	AND namelast ILIKE '%mays%';
-		-- recovered playerid for willie
-
-WITH RECURSIVE starters AS
-	(SELECT playerid
-	FROM allstarfull
-	WHERE playerid = 'mayswi01'
-		AND startingpos IS NOT NULL
-UNION
-	SELECT a2.playerid
-	FROM starters
-		JOIN allstarfull AS a1
-			ON starters.playerid = a1.playerid
-			AND a1.startingpos IS NOT NULL
-		JOIN allstarfull AS a2
-			ON a1.yearid = a2.yearid
-			AND a1.gameid = a2.gameID
-			AND a2.startingpos IS NOT NULL)
-SELECT COUNT(*) -1 AS starters_with_willie
-FROM starters;
-		-- 650 seems like a lot of players
-
-	-- PART B --
-		-- starters that started with starters who've started with Willie
-		-- aka the kevin bacon 7 degrees of seperation
-
-WITH RECURSIVE willie_starters AS
-    (SELECT DISTINCT a2.playerID
-    FROM allstarfull AS a1
-    	JOIN allstarfull AS a2
-    	  ON a1.yearID = a2.yearID
-    	 AND a1.gameID = a2.gameID
-    WHERE a1.playerID = 'mayswi01'
-      AND a1.startingPos IS NOT NULL
-      AND a2.startingPos IS NOT NULL),
-
-kevin_bacon AS 
-	(SELECT playerid
-	FROM willie_starters
-UNION
-	SELECT DISTINCT a2.playerid
-	FROM kevin_bacon AS kb
-		JOIN allstarfull AS a1
-			ON kb.playerid = a1.playerid
-		AND a1.startingpos IS NOT NULL
-		JOIN allstarfull AS a2
-			ON a1.yearid = a2.yearid
-		AND a1.gameid = a2.gameid
-		AND a2.startingpos IS NOT NULL)
-SELECT COUNT(*)
-FROM kevin_bacon
-	WHERE playerid NOT IN 
-		(SELECT playerid FROM willie_starters)
-		AND playerid <> 'mayswi01';
-			-- 525 second-degree starter connections
-
-	-- PART C --
-		--Babe Ruth > Willie... except Babe was never in an allstar game...
-		-- we'll need to find someone who played with him, AND started as an Allstar
-
-SELECT DISTINCT
-    p2.playerID,
-    p2.namefirst,
-    p2.namelast,
-	a2.teamid
-FROM people AS ruth
-JOIN appearances AS a1
-    ON ruth.playerID = a1.playerID
-JOIN appearances AS a2
-    ON a1.teamID = a2.teamID
-   AND a1.yearID = a2.yearID
-JOIN people AS p2
-    ON a2.playerID = p2.playerID
-JOIN allstarfull AS a3
-    ON p2.playerID = a3.playerID
-WHERE ruth.playerID = 'ruthba01'
-	AND a2.teamID = 'NYA'
-  AND a3.startingPos IS NOT NULL;
-		-- Let's do Babe and Lou
-		
-WITH RECURSIVE connection AS
-	(SELECT playerid, ARRAY[playerid]::varchar[] AS links
-	FROM allstarfull
-	WHERE playerID = 'mayswi01'
-		AND startingpos IS NOT NULL
-UNION ALL
-	SELECT DISTINCT
-		a2.playerID,
-		c.links || a2.playerid
-	FROM connection AS c
-		JOIN allstarfull AS a1
-			ON c.playerid = a1.playerid
-			AND a1.startingpos IS NOT NULL
-		JOIN allstarfull AS a2
-			ON a1.yearid = a2.yearid
-			AND a1.gameid = a2.gameid
-			AND a2.startingpos IS NOT NULL
-			WHERE NOT a2.playerid = ANY(c.links))
-SELECT links
-FROM connection
-WHERE playerid = 'gehrilo01'
-LIMIT 1;
-
-	-- PART D --
-		-- Jeter to Willie
-
-SELECT playerid
-FROM people
-WHERE namefirst ILIKE 'Derek'
-	AND namelast ILIKE 'Jeter';
-
-		
-WITH RECURSIVE connection AS
-	(SELECT playerid, ARRAY[playerid]::varchar[] AS links
-	FROM allstarfull
-	WHERE playerID = 'mayswi01'
-		AND startingpos IS NOT NULL
-UNION ALL
-	SELECT DISTINCT
-		a2.playerID,
-		c.links || a2.playerid
-	FROM connection AS c
-		JOIN allstarfull AS a1
-			ON c.playerid = a1.playerid
-			AND a1.startingpos IS NOT NULL
-		JOIN allstarfull AS a2
-			ON a1.yearid = a2.yearid
-			AND a1.gameid = a2.gameid
-			AND a2.startingpos IS NOT NULL
-			WHERE NOT a2.playerid = ANY(c.links))
-SELECT links
-FROM connection
-WHERE playerid = 'jeterde01'
-LIMIT 1;
-		-- that ran so long I got scared
-		-- mayswi01,carewro01,cartega01,clemero02,jeterde01
 
 
